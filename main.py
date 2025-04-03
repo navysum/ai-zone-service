@@ -1,7 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import List
+import uvicorn
 import numpy as np
 
 app = FastAPI()
@@ -15,112 +16,134 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Candle data schema
-class CandleData(BaseModel):
+class Candle(BaseModel):
     open: float
     high: float
     low: float
     close: float
 
-class RequestBody(BaseModel):
-    candles: List[CandleData]
+class CandleData(BaseModel):
+    candles: List[Candle]
 
-# 📊 Candlestick pattern recognition
-def detect_pattern(candles: List[CandleData]):
-    if len(candles) < 2:
-        return "Not enough data", "Unknown"
+# === Full Pattern Recognition Function ===
+def detect_pattern(candles: List[Candle]):
+    if len(candles) < 5:
+        return {"name": "None", "direction": "None", "confidence": 0.0}
+    c = candles[-5:]
 
-    prev = candles[-2]
-    last = candles[-1]
+    # Define patterns (include all from your full pattern recognition block)
+    def hammer(c): return (abs(c.close - c.open) < 0.5 * (c.high - c.low) and min(c.open, c.close) - c.low > 2 * abs(c.close - c.open))
+    def inverted_hammer(c): return (abs(c.close - c.open) < 0.5 * (c.high - c.low) and c.high - max(c.open, c.close) > 2 * abs(c.close - c.open))
+    def bullish_engulfing(p1, p2): return p1.close < p1.open and p2.close > p2.open and p2.open < p1.close and p2.close > p1.open
+    def bearish_engulfing(p1, p2): return p1.close > p1.open and p2.close < p2.open and p2.open > p1.close and p2.close < p1.open
+    def morning_star(p1, p2, p3): return p1.close < p1.open and p2.close < p2.open and p3.close > p3.open and p3.close > ((p1.open + p1.close)/2)
+    def evening_star(p1, p2, p3): return p1.close > p1.open and p2.close > p2.open and p3.close < p3.open and p3.close < ((p1.open + p1.close)/2)
+    def piercing_pattern(p1, p2): return p1.close < p1.open and p2.open < p1.low and p2.close > ((p1.open + p1.close)/2)
+    def dark_cloud_cover(p1, p2): return p1.close > p1.open and p2.open > p1.high and p2.close < ((p1.open + p1.close)/2)
+    def bullish_harami(p1, p2): return p1.close < p1.open and p2.close > p2.open and p2.open > p1.close and p2.close < p1.open
+    def bearish_harami(p1, p2): return p1.close > p1.open and p2.close < p2.open and p2.open < p1.close and p2.close > p1.open
+    def tweezer_bottom(p1, p2): return abs(p1.low - p2.low) <= 0.0002 and p1.close < p1.open and p2.close > p2.open
+    def tweezer_top(p1, p2): return abs(p1.high - p2.high) <= 0.0002 and p1.close > p1.open and p2.close < p2.open
+    def three_inside_up(p1, p2, p3): return bearish_engulfing(p1, p2) and p3.close > p2.close
+    def three_inside_down(p1, p2, p3): return bullish_engulfing(p1, p2) and p3.close < p2.close
+    def three_outside_up(p1, p2, p3): return bullish_engulfing(p1, p2) and p3.close > p2.close
+    def three_outside_down(p1, p2, p3): return bearish_engulfing(p1, p2) and p3.close < p2.close
+    def on_neck(p1, p2): return p1.close > p1.open and p2.open < p1.low and abs(p2.close - p1.low) <= 0.0002
+    def counterattack_bull(p1, p2): return p1.close < p1.open and p2.close > p2.open and abs(p1.close - p2.close) <= 0.0002
+    def counterattack_bear(p1, p2): return p1.close > p1.open and p2.close < p2.open and abs(p1.close - p2.close) <= 0.0002
+    def white_marubozu(c): return c.open == c.low and c.close == c.high
+    def black_marubozu(c): return c.open == c.high and c.close == c.low
 
-    # Bullish Engulfing
-    if prev.close < prev.open and last.close > last.open and last.close > prev.open and last.open < prev.close:
-        return "Bullish Engulfing", "Up"
+    # === Continuation Patterns ===
+    def doji(c): return abs(c.open - c.close) <= (c.high - c.low) * 0.1
+    def spinning_top(c): return abs(c.close - c.open) <= (c.high - c.low) * 0.3 and c.high - max(c.open, c.close) > 0 and min(c.open, c.close) - c.low > 0
+    def three_white_soldiers(candles): return all(c.close > c.open for c in candles)
+    def three_black_crows(candles): return all(c.close < c.open for c in candles)
 
-    # Bearish Engulfing
-    if prev.close > prev.open and last.close < last.open and last.close < prev.open and last.open > prev.close:
-        return "Bearish Engulfing", "Down"
+    # Pattern Checks
+    if hammer(c[-1]): return {"name": "Hammer", "direction": "Bullish", "confidence": 0.85}
+    if inverted_hammer(c[-1]): return {"name": "Inverted Hammer", "direction": "Bullish", "confidence": 0.85}
+    if bullish_engulfing(c[-2], c[-1]): return {"name": "Bullish Engulfing", "direction": "Bullish", "confidence": 0.9}
+    if bearish_engulfing(c[-2], c[-1]): return {"name": "Bearish Engulfing", "direction": "Bearish", "confidence": 0.9}
+    if morning_star(c[-3], c[-2], c[-1]): return {"name": "Morning Star", "direction": "Bullish", "confidence": 0.9}
+    if evening_star(c[-3], c[-2], c[-1]): return {"name": "Evening Star", "direction": "Bearish", "confidence": 0.9}
+    if piercing_pattern(c[-2], c[-1]): return {"name": "Piercing Pattern", "direction": "Bullish", "confidence": 0.85}
+    if dark_cloud_cover(c[-2], c[-1]): return {"name": "Dark Cloud Cover", "direction": "Bearish", "confidence": 0.85}
+    if bullish_harami(c[-2], c[-1]): return {"name": "Bullish Harami", "direction": "Bullish", "confidence": 0.8}
+    if bearish_harami(c[-2], c[-1]): return {"name": "Bearish Harami", "direction": "Bearish", "confidence": 0.8}
+    if tweezer_bottom(c[-2], c[-1]): return {"name": "Tweezer Bottom", "direction": "Bullish", "confidence": 0.8}
+    if tweezer_top(c[-2], c[-1]): return {"name": "Tweezer Top", "direction": "Bearish", "confidence": 0.8}
+    if three_inside_up(c[-3], c[-2], c[-1]): return {"name": "Three Inside Up", "direction": "Bullish", "confidence": 0.9}
+    if three_inside_down(c[-3], c[-2], c[-1]): return {"name": "Three Inside Down", "direction": "Bearish", "confidence": 0.9}
+    if three_outside_up(c[-3], c[-2], c[-1]): return {"name": "Three Outside Up", "direction": "Bullish", "confidence": 0.9}
+    if three_outside_down(c[-3], c[-2], c[-1]): return {"name": "Three Outside Down", "direction": "Bearish", "confidence": 0.9}
+    if on_neck(c[-2], c[-1]): return {"name": "On-Neck Pattern", "direction": "Bearish", "confidence": 0.75}
+    if counterattack_bull(c[-2], c[-1]): return {"name": "Bullish Counterattack", "direction": "Bullish", "confidence": 0.75}
+    if counterattack_bear(c[-2], c[-1]): return {"name": "Bearish Counterattack", "direction": "Bearish", "confidence": 0.75}
+    if white_marubozu(c[-1]): return {"name": "White Marubozu", "direction": "Bullish", "confidence": 0.8}
+    if black_marubozu(c[-1]): return {"name": "Black Marubozu", "direction": "Bearish", "confidence": 0.8}
+    if doji(c[-1]): return {"name": "Doji", "direction": "Neutral", "confidence": 0.6}
+    if spinning_top(c[-1]): return {"name": "Spinning Top", "direction": "Neutral", "confidence": 0.6}
+    if three_white_soldiers(c[-3:]): return {"name": "Three White Soldiers", "direction": "Bullish", "confidence": 0.95}
+    if three_black_crows(c[-3:]): return {"name": "Three Black Crows", "direction": "Bearish", "confidence": 0.95}
 
-    # Doji
-    if abs(last.open - last.close) <= (last.high - last.low) * 0.1:
-        return "Doji", "Uncertain"
+    return {"name": "None", "direction": "None", "confidence": 0.0}
 
-    # Hammer
-    if (last.high - last.low) > 2 * abs(last.open - last.close) and last.close > last.open:
-        return "Hammer", "Up"
-
-    return "None", "Unknown"
-
-# 🧠 Count how often price touched the zone
-def count_zone_touches(candles: List[CandleData], zone: float, buffer: float = 0.0007):
-    count = 0
-    for c in candles:
-        if zone - buffer <= c.low <= zone + buffer or zone - buffer <= c.high <= zone + buffer:
-            count += 1
-    return count
-
-# 📌 Count rejections based on large wicks near the zone
-def count_rejection_wicks(candles: List[CandleData], zone: float, buffer: float = 0.0007):
-    rejections = 0
-    for c in candles:
-        wick_size = (c.high - max(c.open, c.close)) + (min(c.open, c.close) - c.low)
-        body_size = abs(c.close - c.open)
-        if wick_size > 1.5 * body_size:
-            if zone - buffer <= c.low <= zone + buffer or zone - buffer <= c.high <= zone + buffer:
-                rejections += 1
-    return rejections
-
-# 🚀 Main AI logic
+# === AI Endpoint ===
 @app.post("/ai/zones")
-async def detect_zones(data: RequestBody):
-    highs = [c.high for c in data.candles]
-    lows = [c.low for c in data.candles]
+async def ai_zones(data: CandleData):
+    candles = data.candles
+    closes = [c.close for c in candles]
+    highs = [c.high for c in candles]
+    lows = [c.low for c in candles]
 
-    resistance = round(np.percentile(highs, 95), 5)
-    support = round(np.percentile(lows, 5), 5)
+    # Support/Resistance (basic logic)
+    support = min(lows[-10:])
+    resistance = max(highs[-10:])
 
-    # Support/Resistance touches
-    support_touches = count_zone_touches(data.candles, support)
-    resistance_touches = count_zone_touches(data.candles, resistance)
+    # RSI
+    delta = np.diff(closes)
+    gain = np.mean([d for d in delta if d > 0]) if any(d > 0 for d in delta) else 0
+    loss = np.mean([-d for d in delta if d < 0]) if any(d < 0 for d in delta) else 0
+    rs = gain / loss if loss != 0 else 0
+    rsi = 100 - (100 / (1 + rs)) if rs != 0 else 100
 
-    # Wick rejections
-    support_rejections = count_rejection_wicks(data.candles, support)
-    resistance_rejections = count_rejection_wicks(data.candles, resistance)
+    # EMAs
+    ema50 = np.mean(closes[-50:]) if len(closes) >= 50 else None
+    ema100 = np.mean(closes[-100:]) if len(closes) >= 100 else None
 
-    # Candle pattern detection
-    pattern, prediction = detect_pattern(data.candles)
+    # Bollinger Bands
+    bb_close = closes[-20:] if len(closes) >= 20 else closes
+    ma = np.mean(bb_close)
+    std = np.std(bb_close)
+    upper_band = ma + 2 * std
+    lower_band = ma - 2 * std
 
-    # 🔢 Scoring
-    touch_factor = (support_touches + resistance_touches) * 5
-    rejection_factor = (support_rejections + resistance_rejections) * 4
-    pattern_factor = 10 if pattern in ["Hammer", "Bullish Engulfing", "Bearish Engulfing"] else 0
+    # Pattern Detection
+    pattern = detect_pattern(candles)
 
-    range_span = max(highs) - min(lows)
-    base_strength = max(0, 100 - (range_span / max(highs)) * 100)
-    final_strength = min(100, base_strength + touch_factor + rejection_factor + pattern_factor)
-
-    # Zones
-    support_zone = f"{support - 0.0005:.5f} - {support + 0.0005:.5f}"
-    resistance_zone = f"{resistance - 0.0005:.5f} - {resistance + 0.0005:.5f}"
-    entry = f"Buy @ {support + 0.0003:.5f}"
-    target = f"{resistance:.5f}"
-    stop = f"{support - 0.0010:.5f}"
+    # Signal Logic
+    signal_confirmed = pattern["direction"] in ["Bullish", "Bearish"] and pattern["confidence"] > 0.8
+    direction = pattern["direction"] if signal_confirmed else "N/A"
 
     return {
-        "support": support_zone,
-        "resistance": resistance_zone,
-        "entry": entry,
-        "target": target,
-        "stop": stop,
-        "strength": round(final_strength, 2),
+        "support": f"{support:.5f}",
+        "resistance": f"{resistance:.5f}",
+        "entry": f"{'Buy' if direction == 'Bullish' else 'Sell'} @ {closes[-1]:.5f}" if direction != "N/A" else "N/A",
+        "target": f"{closes[-1] + 0.0020:.5f}" if direction == "Bullish" else (f"{closes[-1] - 0.0020:.5f}" if direction == "Bearish" else "N/A"),
+        "stop": f"{closes[-1] - 0.0010:.5f}" if direction == "Bullish" else (f"{closes[-1] + 0.0010:.5f}" if direction == "Bearish" else "N/A"),
+        "signal": signal_confirmed,
+        "direction": direction,
         "pattern": pattern,
-        "prediction": prediction,
-        "touches": {
-            "support": support_touches,
-            "resistance": resistance_touches
-        },
-        "rejections": {
-            "support": support_rejections,
-            "resistance": resistance_rejections
-        }
+        "rsi": rsi,
+        "trend": "Uptrend" if ema50 and ema100 and ema50 > ema100 else ("Downtrend" if ema50 and ema100 and ema50 < ema100 else "N/A"),
+        "ema50": ema50,
+        "ema100": ema100,
+        "bollinger_upper": upper_band,
+        "bollinger_lower": lower_band,
+        "take_profit_ratio": 2
     }
+
+# === Run app locally for testing ===
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
